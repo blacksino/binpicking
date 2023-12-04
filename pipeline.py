@@ -6,6 +6,7 @@ import cv2
 import xml.etree.ElementTree as ET
 import glob
 from matplotlib import pyplot as plt
+import rich
 from mmdeploy_runtime import Detector
 import cv2
 from glob import glob
@@ -14,8 +15,8 @@ import os
 import sys
 import ctypes
 
-
 current_path = os.path.dirname(__file__)
+
 
 class Pipeline:
     """
@@ -24,22 +25,21 @@ class Pipeline:
     locating its upper surface center.
     """
 
-    def __init__(self, calib_path=None,dylib_path=None,model_path=None):
-        # assert  os.path.exists(json_path), "The json file does not exist!"
-        # self.info = json.load(open(json_path))
-        # self._parse_json()
-        self.intrinsics = self._parse_xml(calib_path)
+    def __init__(self, calib_path=current_path + '/calib',
+                 dylib_path=current_path + '/build/libRGBDCameraSDK.so',
+                 model_path=current_path + '/model/swinmaskrcnn'):
+        self.intrinsics = self._parse_xml(xml_dir=calib_path)
         self._init_camera(dylib_path)
         self.detector = Detector(model_path=model_path, device_name='cuda', device_id=0)
 
-    def _init_camera(self, dylib_path):
-        self.sdk = ctypes.CDLL("/home/wsco/code/jsg/build/libRGBDCameraSDK.so", mode=os.GRND_NONBLOCK)
-        self.sdf.MV3D_RGBD_StartCapture()
+    def _init_camera(self, dylib_path="./build/libRGBDCameraSDK.so"):
+        self.sdk = ctypes.CDLL(dylib_path, mode=os.GRND_NONBLOCK)
+        self.sdk.MV3D_RGBD_StartCapture()
 
-
-    def _parse_xml(self, xml_path=current_path+'/calib'):
-
-        tree = ET.parse(xml_path)
+    @staticmethod
+    def _parse_xml(self, xml_dir):
+        intrinsics_path = os.path.join(xml_dir, "intrinsics.xml")
+        tree = ET.parse(intrinsics_path)
         root = tree.getroot()
         # get "RGBD_MAX" node
         RGBD_MAX = list(filter(lambda x: x.tag == "RGBD_MAX", root.getchildren()))[0]
@@ -49,61 +49,42 @@ class Pipeline:
         fx, fy, cx, cy = intrinsics.get('fx'), intrinsics.get('fy'), intrinsics.get('cx'), intrinsics.get('cy')
         fx, fy, cx, cy = map(float, [fx, fy, cx, cy])
         return [fx, fy, cx, cy]
-        # get "fx" node,"fy" node,"cx" node,"cy" node
-    def _parse_json(self):
-        """
-        Parse the json file
-        """
-        self.img_info = self.info["images"]
-        self.anno_dict = self.info["annotations"]
-        # group the annotations by image id
-        self.anno_info = {anno["image_id"]: [] for anno in self.anno_dict}
-        for anno in self.anno_dict:
-            self.anno_info[anno["image_id"]].append(anno)
 
-    def get_rgbd_img(self):
-        img_path = self.img_info[index]["file_name"]
-        if "depth_file_name" in self.img_info[index]:
-            depth_path = self.img_info[index]["depth_file_name"]
-        else:
-            depth_base_name = os.path.basename(img_path)
-            depth_base_name = depth_base_name.replace("彩色图", "深度图")
-            depth_base_name = depth_base_name.replace(".jpg", ".tiff")
-            # search depth file name in the given directory
-            depth_path = glob.glob(os.path.join(depth_dir, depth_base_name))
-            if len(depth_path) == 0:
-                print("The depth file does not exist!")
-                return None
-            else:
-                depth_path = depth_path[0]
-        rgb_img = cv2.imread(img_path)
-        depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-        # check if the sizes of the rgb and depth images match
-        if rgb_img.shape[:2] != depth_img.shape:
-            print("The sizes of the rgb and depth images do not match!")
+    def get_recent_rgbd(self, rgbd_dir="./RGBD_data", fmt="tiff"):
+        # get most recent rgbd image
+        img_list = glob.glob(os.path.join(rgbd_dir, f"*.{fmt}"))
+        img_list.sort(key=os.path.getmtime)
+        return self.get_rgbd_img(img_list[-1])
+
+    @staticmethod
+    def get_rgbd_img(self, img_path):
+        return cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+
+    def _run_inference(self, rgb_img):
+        assert rgb_img.shape[-1] == 3, "Detector input must be an rgb image!"
+        rich.print("[bold red]Running inference...[/bold red]")
+        bboxes, labels, masks = self.detector(rgb_img)
+        rich.print("[bold green]Inference Done![/bold green]")
+        return {"bboxes": bboxes, "labels": labels, "masks": masks}
+
+    def get_roi(self, rgbd_img):
+        rgb_img = rgbd_img[..., :3]
+        inference_results = self._run_inference(rgb_img)
+        num_of_detection = len(inference_results["bboxes"])
+        roi_list = []
+        if num_of_detection == 0:
+            rich.print("[bold red]No object detected![/bold red]")
             return None
-        # concatenate the rgb and depth image
-        rgbd_img = np.concatenate([rgb_img, depth_img[..., np.newaxis]], axis=-1)
-        return rgbd_img
 
-    def get_roi(self, rgbd_img, box, mask):
-
-        # crop image using box
-        crop_img = rgbd_img[box[1]:box[1] + box[3], box[0]:box[0] + box[2]]
-        roi_results = list()
-
-        # seg = each_anno["segmentation"]
-        # convert seg contours points to mask
-        # mask = np.zeros_like(rgbd_img[..., -1])
-        # pts = np.array([seg]).reshape(-1,2).astype(np.int32)
-        # pts = pts.reshape(-1, 1, 2)
-        # mask = cv2.fillPoly(mask, [pts] , color=255)
-        # crop mask using box
-        cropped_mask = mask[box[1]:box[1] + box[3], box[0]:box[0] + box[2]]
-        # get the roi of the object
-        roi = crop_img * (cropped_mask[..., np.newaxis].astype(bool))
-        roi_results.append({"roi": roi, "box": box})
-        return roi_results
+        for i, result in enumerate(inference_results.items()):
+            bbox, label, mask = result["bboxes"], result["labels"], result["masks"]
+            [left, top, right, bottom], score = bbox[0:4].astype(int), bbox[4]
+            if score < 0.5:
+                rich.print(f"Skip bbox {bbox} with score {score}")
+                continue
+            current_roi_img = rgbd_img[top: bottom, left: right]
+            roi_list.append({"roi": current_roi_img, "box": bbox, "label": label, "mask": mask})
+        return roi_list
 
     def down_sample_using_voxel_grid(self, pcd, voxel_size=0.005):
         """
@@ -128,11 +109,16 @@ class Pipeline:
         depth = rgbd_img[..., -1].astype(np.float32)
         o3d_rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(o3d.geometry.Image(rgb),
                                                                       o3d.geometry.Image(depth),
-                                                                      depth_scale=10000, convert_rgb_to_intensity=False)
+                                                                      depth_scale=10000,
+                                                                      convert_rgb_to_intensity=False)
         intrinsics = o3d.camera.PinholeCameraIntrinsic()
-        new_cx, new_cy = self.update_intrinsics_after_crop(cx, cy, box)
+        new_cx, new_cy = self.update_intrinsics_after_crop(self.intrinsics[2],
+                                                           self.intrinsics[3],
+                                                           box)
         intrinsics.set_intrinsics(rgbd_img.shape[1], rgbd_img.shape[0],
-                                  fx=fx, fy=fy, cx=new_cx, cy=new_cy)
+                                  fx=self.intrinsics[0],
+                                  fy=self.intrinsics[1],
+                                  cx=new_cx, cy=new_cy)
         pcd = o3d.geometry.PointCloud.create_from_rgbd_image(o3d_rgbd, intrinsics)
         # draw xyz axis and pcd
         # xyz_axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=[0, 0, 0])
@@ -164,7 +150,7 @@ class Pipeline:
         plane_model, inliers = new_pcd.segment_plane(distance_threshold=0.01,
                                                      ransac_n=3,
                                                      num_iterations=1000)
-        if len(inliers) / len(new_pcd.points) < 0.5:
+        if (len(inliers) / len(new_pcd.points)) < 0.5:
             print(f"Inliers ratio is {len(inliers) / len(new_pcd.points)}, too small!")
         [a, b, c, d] = plane_model
         plane_normal = np.array([a, b, c])
@@ -197,97 +183,4 @@ class Pipeline:
 
 
 if __name__ == '__main__':
-    json_path = "/Users/blacksino/PycharmProjects/code/js_rgbd/train.json"
-    detector = Detector(model_path='/root/workspace/mmdeploy/swinmaskrcnn', device_name='cuda', device_id=0)
-
-    # image_path = "/mm/test.jpg"
-    image_path = sys.argv[1]
-    depth_path = sys.argv[2]
-
-    img = cv2.imread(image_path)
-    depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-
-    depth = np.concatenate([img, depth[:, :, None]], axis=-1)
-
-    bboxes, labels, masks = detector(img)
-
-    output_mask = np.zeros(img.shape[:-1])
-    # 使用阈值过滤推理结果，并绘制到原图中
-    indices = [i for i in range(len(bboxes))]
-    a = 0
-    for index, bbox, label_id, mask in zip(indices, bboxes, labels, masks):
-        output_mask = np.zeros(img.shape[:-1])
-        [left, top, right, bottom], score = bbox[0:4].astype(int), bbox[4]
-        if score < 0.5:
-            continue
-        # cv2.rectangle(img, (left, top), (right, bottom), (0, 255, 0))
-        print(mask.shape)
-
-        ori_resize_mask = cv2.resize(mask, (right - left, bottom - top))
-
-        resize_mask = cv2.resize(np.uint8(mask > 0), (right - left, bottom - top), interpolation=cv2.INTER_NEAREST) * (
-                    index + 1)
-        resize_mask *= (output_mask[top: bottom, left: right] == 0)
-        output_mask[top: bottom, left: right] = resize_mask
-
-        pre = Pipeline([fx, fy, cx, cy])
-        roi_results = pre.get_roi(depth, [left, top, right - left, bottom - top], output_mask)
-        plane_normal, center = pre.fit_plane_normal(roi_results[0]["roi"], roi_results[0]["box"])
-        print(plane_normal, center)
-        a += 1
-        if a == 2:
-            break
-    cv2.imwrite("/mm/output.jpg", np.uint8(output_mask > 0) * 255)
-
-    translation = [-1328.073802142068, 324.131363107185, 2200.6887077484457]
-    euler = [-2.9317062982468785, -0.019257383521215202, 1.6256755676337336]
-    from scipy.spatial.transform import Rotation as R
-
-    r = R.from_euler('xyz', euler, degrees=False)
-    rot_mat = r.as_matrix()
-    extrinsics = np.zeros((4, 4))
-    extrinsics[:3, :3] = rot_mat
-    extrinsics[:3, 3] = np.array(translation)
-    extrinsics[3, 3] = 1
-    extrinsics = np.linalg.inv(extrinsics)
-
-    print(extrinsics)
-
-    normal = np.ones(4)
-    normal[:3] = plane_normal
-    new_center = np.ones(4)
-    new_center[:3] = center * 1000
-
-    print(new_center)
-    print(normal)
-    normal = extrinsics[:3, :3] @ normal[:3]
-    new_center = extrinsics @ new_center
-    print(normal, new_center)
-
-    # r = R.from_rotvec(normal)
-    # euler = r.as_euler('zyx',degrees=True)
-    # print(euler)
-
-    additional_euler = [0, np.deg2rad(15), bo, ]
-    additional_translation = [0, 0, 393]
-    r = R.from_euler("xyz", additional_euler, degrees=False)
-    rot = r.as_matrix()
-    print(rot)
-
-    additional_ex = np.zeros((4, 4))
-    additional_ex[:3, :3] = rot
-    additional_ex[:3, 3] = additional_translation
-    additional_ex[3, 3] = 1
-
-    normal = rot @ normal
-    print(normal)
-
-    r = R.from_rotvec(normal)
-    euler = r.as_euler('zyx', degrees=True)
-    print("euler", euler)
-    print("add", additional_ex)
-    # additional_ex = np.linalg.inv(additional_ex)
-    print("center", additional_ex @ new_center)
-
-
-
+    jsg_ppl = Pipeline()
