@@ -1,0 +1,2 @@
+export LD_LIBRARY_PATH=/opt/MVS/lib/64:/opt/MVS/lib/32:/opt/MVS/lib/64:/opt/MVS/lib/32:/usr/local/cuda-11.3/lib64:/opt/MVS/lib/64:/opt/MVS/lib/32::/home/wsco/hhz/TensorRT-8.6.0.12/lib:/home/wsco/hhz/SDK_Mv3dRgbd_V1.2.0_Linux_230512/Lib/linux64:$LD_LIBRARY_PATH
+export CUDA_MODULE_LOADING=LAZY
