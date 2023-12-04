@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ArithConfig>
+  <PKG_GRASP>
+    <Ability>
+      <max_rgb_img_size img_w="1408" img_h="1024" />
+      <max_3d_img_size img_w="1408" img_h="1024" />
+    </Ability>
+    <INPUT>
+      <SYS_CALIB_INFO>
+        <CalibResult translationError="34.9032974" reprojectionError="23.8016052" />
+        <Board2robot tx="-20.845265992949329" ty="221.22774534275666" tz="65.614172326632143" rx="0.35612075936208065" ry="-0.16194644383047727" rz="2.0606826972644927" />
+        <Robot2rgb tx="-1328.073802142068" ty="324.131363107185" tz="2200.6887077484457" rx="-2.9317062982468785" ry="-0.019257383521215202" rz="1.6256755676337336" />
+      </SYS_CALIB_INFO>
+      <GRIPPER_INFO>
+        <Gripper_type value="1" name="执行器类型 1-吸嘴 2-夹爪" />
+        <Sucker_info set_num="1" length="120" width="80" long_axis_dir="1" set_offset="50" />
+        <Grasper_info set_num="1" length="400" width="200" axis_dir="1" />
+      </GRIPPER_INFO>
+      <TARGET_POS_INFO>
+        <Pkg_target_pos x="0.0" y="0.0" z="0.0" name="抓取放置点位置" />
+        <Pkg_target_enable value="1" name="抓取放置点位置使能" />
+      </TARGET_POS_INFO>
+    </INPUT>
+    <CalibType value="EyeToHand" help="标定类型"></CalibType>
+    <ManipulatorCalib>
+      <CalibEnable value="0" />
+      <LinkOffset L1="0" L2="1.2277832" L3="3.08776855" L4="0.2866211" L5="0" L6="11.1889191" L7="0" L8="0" />
+      <JointOffset J1="0" J2="-0.05222826" J3="0.333097965" J4="-0.0275266673" J5="-0.3976607" J6="0" />
+    </ManipulatorCalib>
+  </PKG_GRASP>
+</ArithConfig>

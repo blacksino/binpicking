@@ -1,0 +1,5 @@
+./Documentations
+./GetFrameSDKSrc
+*.so
+*.ini
+*.cti
