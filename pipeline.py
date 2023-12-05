@@ -200,7 +200,8 @@ class Pipeline:
                                                      ransac_n=3,
                                                      num_iterations=1000)
         if (len(inliers) / len(new_pcd.points)) < 0.5:
-            print(f"Inliers ratio is {len(inliers) / len(new_pcd.points)}, too small!")
+            inlier_ratio = len(inliers) / len(new_pcd.points)
+            rich.print(f"[bold red]Inlier ratio is {inlier_ratio}, too small![/bold red]")
         [a, b, c, d] = plane_model
         plane_normal = np.array([a, b, c])
         plane_normal = plane_normal / (np.linalg.norm(plane_normal) + 1e-6)
@@ -212,20 +213,22 @@ class Pipeline:
         cov = np.cov(points.T)
         evalue, evector = np.linalg.eig(cov)
         x_axis = evector[:, np.argmax(evalue)]
+        if np.dot(x_axis, np.array([0, 0, 1])) < 0:
+            x_axis = -x_axis
+
         y_axis = np.cross(plane_normal, x_axis)
+
+
         rotation_matrix = np.array([x_axis, y_axis, plane_normal]).T
         transform_matrix = np.eye(4)
         transform_matrix[:3, :3] = rotation_matrix
         transform_matrix[:3, 3] = center
-
-        # draw local axis
-        # local_axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
-        # local_axis.rotate(rotation_matrix, center=(0, 0, 0))
-        # local_axis.translate(center)
-
-        # global_axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=[0, 0, 1.0])
-        # o3d.visualization.draw_geometries([pcd, local_axis, global_axis])
         return transform_matrix
+
+    @staticmethod
+    def tool_coordinate_calib(calib_mat,robot_mat):
+        return calib_mat @ robot_mat
+
 
     def get_upper_surface_center(self, pcd):
         """
