@@ -51,23 +51,28 @@ class Pipeline:
 
 
     def _init_camera(self, dylib_path="./build/libRGBDCameraSDK.so"):
-        self.sdk = ctypes.CDLL(dylib_path, mode=os.GRND_NONBLOCK)
-        self.sdk.MV3D_RGBD_StartCapture()
+        try:
+            self.sdk = ctypes.CDLL(dylib_path, mode=os.GRND_NONBLOCK)
+            self.sdk.MV3D_RGBD_StartCapture()
+        except OSError as e:
+            print(f"Error loading library: {e}")
+            sys.exit(1)
 
     def _capture_rgbd(self):
-        self.sdk.MV3D_RGBD_GetFrame()
+        try:
+            self.sdk.MV3D_RGBD_GetFrame()
+        except Exception as e:
+            print(f"Error capturing frame: {e}")
+            return None, None
         rgb_img = cv2.imread("RGB.png")
         depth_img = cv2.imread("Depth.png", cv2.IMREAD_UNCHANGED)
-        shutil.move("RGB.png",os.path.join(self.data_path,"RGB.png"))
-        shutil.move("Depth.png",os.path.join(self.data_path,"Depth.png"))
-        # delete the old file
-        os.remove("RGB.png")
-        os.remove("Depth.png")
+        shutil.move("RGB.png", os.path.join(self.data_path, "RGB.png"))
+        shutil.move("Depth.png", os.path.join(self.data_path, "Depth.png"))
         timestamp = time.time()
         local_time = time.localtime(timestamp)
         formatted_time = time.strftime("%Y-%m-%d %H:%M:%S", local_time)
-        os.rename(os.path.join(self.data_path,"RGB.png"),
-                  os.path.join(self.data_path,f"{formatted_time}_RGB.png"))
+        os.rename(os.path.join(self.data_path, "RGB.png"),
+                  os.path.join(self.data_path, f"{formatted_time}_RGB.png"))
         os.rename(os.path.join(self.data_path, "Depth.png"),
                   os.path.join(self.data_path, f"{formatted_time}_Depth.png"))
         return rgb_img, depth_img
@@ -93,21 +98,19 @@ class Pipeline:
         tree = ET.parse(intrinsics_path)
         root = tree.getroot()
         intrinsics = root.find(".//RGBD_MAX/RGB/Intrins")
-        fx, fy, cx, cy = map(float,[intrinsics.get('fx'), intrinsics.get('fy'), intrinsics.get('cx'), intrinsics.get('cy')])
+        fx, fy, cx, cy = map(float, [intrinsics.get('fx'), intrinsics.get('fy'), intrinsics.get('cx'), intrinsics.get('cy')])
 
-
-        extrinsics = os.path.join(xml_dir, "extrinsics.mfa")
-        tree = ET.parse(extrinsics)
+        extrinsics_path = os.path.join(xml_dir, "extrinsics.mfa")
+        tree = ET.parse(extrinsics_path)
         root = tree.getroot()
         extrinsics = root.find(".//SYS_CALIB_INFO/Robot2rgb")
-        tx, ty, tz, rx, ry, rz = map(float,[extrinsics.get('tx'), extrinsics.get('ty'), extrinsics.get('tz'),
-                                            extrinsics.get('rx'), extrinsics.get('ry'), extrinsics.get('rz')])
-
+        tx, ty, tz, rx, ry, rz = map(float, [extrinsics.get('tx'), extrinsics.get('ty'), extrinsics.get('tz'),
+                                             extrinsics.get('rx'), extrinsics.get('ry'), extrinsics.get('rz')])
 
         return [fx, fy, cx, cy], [tx, ty, tz, rx, ry, rz]
 
     @staticmethod
-    def get_rgbd_img(self, img_path):
+    def get_rgbd_img(img_path):
         return cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
 
     def _run_inference(self, rgb_img):
@@ -173,7 +176,7 @@ class Pipeline:
         pcd = o3d.geometry.PointCloud.create_from_rgbd_image(o3d_rgbd, intrinsics)
         return pcd
 
-    def fit_plane_normal(self, roi_image, box):
+    def fit_plane_normal(self, roi_image, box,visualize=False):
         """
         Fit the plane normal of the point cloud
         """
@@ -223,6 +226,15 @@ class Pipeline:
         transform_matrix = np.eye(4)
         transform_matrix[:3, :3] = rotation_matrix
         transform_matrix[:3, 3] = center
+
+        # draw local axis
+        if visualize:
+            local_axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
+            local_axis.rotate(rotation_matrix, center=(0, 0, 0))
+            local_axis.translate(center)
+
+            global_axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=[0, 0, 1.0])
+            o3d.visualization.draw_geometries([pcd, local_axis, global_axis])
         return transform_matrix
 
     @staticmethod
@@ -240,10 +252,11 @@ class Pipeline:
 
 if __name__ == '__main__':
     jsg_ppl = Pipeline()
-    # jsg_ppl._capture_rgbd()
+    # test
     # rgb_img = cv2.imread("./test_rgb/test_rgb.bmp")
     # depth_img = cv2.imread("./test_rgb/test_depth.tiff", cv2.IMREAD_UNCHANGED)
     # rgbd_img = np.concatenate([rgb_img, depth_img[..., np.newaxis]], axis=-1)
     # roi_list = jsg_ppl.get_roi(rgbd_img)
     # for i in range(15):
     #     jsg_ppl.fit_plane_normal(roi_list[i]["roi"], roi_list[i]["box"])
+    jsg_ppl.run_pipeline()
