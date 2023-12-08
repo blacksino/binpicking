@@ -32,11 +32,18 @@ class Pipeline:
                  dylib_path=current_path + '/build/libRGBDCameraSDK.so',
                  model_path=current_path + '/model/swinmaskrcnn',
                  data_path=current_path + '/data'):
+        self.calib_path = calib_path
+        self.dylib_path = dylib_path
+        self.model_path = model_path
+        self.data_path = data_path
+
         self.intrinsics,self.extrinsics = self._parse_xml(xml_dir=calib_path)
-        self._init_camera(dylib_path)
         self.detector = Detector(model_path=model_path, device_name='cuda', device_id=0)
         self.data_path = data_path
         self.rgb2robot = self._convert_extrinsics()
+
+    def init_camera(self):
+        self._init_camera(self.dylib_path)
 
     def _convert_extrinsics(self):
         # convert tx,ty,tz,rx,ry,rz to transformation matrix
